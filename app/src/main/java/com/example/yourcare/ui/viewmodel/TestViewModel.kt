@@ -7,12 +7,21 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.yourcare.utils.FftHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.sqrt
 
-// Data class to hold live sensor values
+
+// ... (TremorData and TremorMetrics data classes remain the same) ...
+data class TremorMetrics(
+    val averageRms: Float,
+    val peakAmplitude: Float,
+    val minAmplitude: Float,
+    val frequency: Float
+)
+
 data class TremorData(
     val x: Float = 0f,
     val y: Float = 0f,
@@ -20,37 +29,38 @@ data class TremorData(
     val magnitude: Float = 0f
 )
 
-// Data class to hold final results
-data class TremorMetrics(
-    val averageRms: Float,
-    val peakAmplitude: Float,
-    val minAmplitude: Float
-)
-
 class TestViewModel : ViewModel(), SensorEventListener {
 
     private var sensorManager: SensorManager? = null
-
-    // Live stream of data for UI
     private val _currentData = MutableStateFlow(TremorData())
     val currentData = _currentData.asStateFlow()
-
-    // Test Status
     private val _isTesting = MutableStateFlow(false)
     val isTesting = _isTesting.asStateFlow()
 
-    // Store readings to calculate average later
+    // --- NEW: Public lists for the PDF Report ---
+    val rawX = mutableListOf<Float>()
+    val rawY = mutableListOf<Float>()
+    val rawZ = mutableListOf<Float>()
+    // --------------------------------------------
+
     private val recordedMagnitudes = mutableListOf<Float>()
+    private var testStartTime: Long = 0
 
     fun startTest(context: Context) {
         sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val gyro = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
         if (gyro != null) {
+            // Clear previous history
             recordedMagnitudes.clear()
+
+            rawX.clear()
+            rawY.clear()
+            rawZ.clear()
+
+            testStartTime = System.currentTimeMillis()
             _isTesting.value = true
-            // SENSOR_DELAY_UI is sufficient for visual feedback
-            sensorManager?.registerListener(this, gyro, SensorManager.SENSOR_DELAY_UI)
+            sensorManager?.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME)
         }
     }
 
@@ -58,16 +68,19 @@ class TestViewModel : ViewModel(), SensorEventListener {
         _isTesting.value = false
         sensorManager?.unregisterListener(this)
 
-        if (recordedMagnitudes.isEmpty()) return TremorMetrics(0f, 0f, 0f)
+        if (recordedMagnitudes.isEmpty()) return TremorMetrics(0f, 0f, 0f, 0f)
 
         val maxTremor = recordedMagnitudes.maxOrNull() ?: 0f
         val minTremor = recordedMagnitudes.minOrNull() ?: 0f
-
-        // Calculate RMS (Root Mean Square) for Average Vibration
         val sumSquares = recordedMagnitudes.sumOf { (it * it).toDouble() }
         val averageRMS = sqrt(sumSquares / recordedMagnitudes.size).toFloat()
 
-        return TremorMetrics(averageRMS, maxTremor, minTremor)
+        val totalTimeSeconds = (System.currentTimeMillis() - testStartTime) / 1000f
+        val sampleRate = if (totalTimeSeconds > 0) recordedMagnitudes.size / totalTimeSeconds else 0f
+
+        val dominantFrequency = FftHelper.calculateDominantFrequency(recordedMagnitudes, sampleRate)
+
+        return TremorMetrics(averageRMS, maxTremor, minTremor, dominantFrequency)
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -76,20 +89,20 @@ class TestViewModel : ViewModel(), SensorEventListener {
                 val x = it.values[0]
                 val y = it.values[1]
                 val z = it.values[2]
-                // Calculate total magnitude of rotation
                 val magnitude = sqrt(x*x + y*y + z*z)
 
-                // Update UI
                 viewModelScope.launch {
                     _currentData.emit(TremorData(x, y, z, magnitude))
                 }
-                // Store for calculation
+
+                // Save raw data for PDF
                 recordedMagnitudes.add(magnitude)
+                rawX.add(x)
+                rawY.add(y)
+                rawZ.add(z)
             }
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Not needed for this use case
-    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 }

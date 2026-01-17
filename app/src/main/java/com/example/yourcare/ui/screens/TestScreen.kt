@@ -23,11 +23,12 @@ import com.example.yourcare.ui.theme.GradientButton
 import com.example.yourcare.ui.theme.RippleTeal
 import com.example.yourcare.ui.viewmodel.TestViewModel
 import kotlinx.coroutines.delay
+import kotlin.math.sqrt
 
 @Composable
 fun TestScreen(
     viewModel: TestViewModel = viewModel(),
-    onTestComplete: (Float, Float, Float) -> Unit
+    onTestComplete: (Float, Float, Float, Float) -> Unit
 ) {
     val context = LocalContext.current
     val data by viewModel.currentData.collectAsState()
@@ -39,7 +40,7 @@ fun TestScreen(
     LaunchedEffect(data.magnitude) {
         if (isTesting) {
             history.add(data.magnitude)
-            if (history.size > 150) history.removeAt(0) // Keep last 150 points
+            if (history.size > 150) history.removeAt(0)
         }
     }
 
@@ -54,7 +55,7 @@ fun TestScreen(
                 timeLeft--
             }
             val metrics = viewModel.stopTest()
-            onTestComplete(metrics.averageRms, metrics.peakAmplitude, metrics.minAmplitude)
+            onTestComplete(metrics.averageRms, metrics.peakAmplitude, metrics.minAmplitude, metrics.frequency)
         }
     }
 
@@ -73,7 +74,7 @@ fun TestScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // --- 1. LIVE GRAPH (Seismograph Style) ---
+        // --- 1. LIVE GRAPH ---
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -84,9 +85,8 @@ fun TestScreen(
             Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
                 val width = size.width
                 val height = size.height
-                val maxExpectedVal = 6f // Used to scale graph height
+                val maxExpectedVal = 6f
 
-                // Grid line
                 drawLine(Color.LightGray, Offset(0f, height/2), Offset(width, height/2))
 
                 if (history.isNotEmpty()) {
@@ -95,7 +95,6 @@ fun TestScreen(
 
                     history.forEachIndexed { index, value ->
                         val x = index * stepX
-                        // Invert Y so higher values go UP. Center is mid-height.
                         val y = height - ((value / maxExpectedVal) * height).coerceAtMost(height)
                         if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
                     }
@@ -112,34 +111,54 @@ fun TestScreen(
 
         Spacer(modifier = Modifier.height(30.dp))
 
-        // --- 2. VIBRATION CIRCLE (Visualizer) ---
-        // This circle physically offsets (shakes) based on X and Y sensor values
+        // --- 2. VIBRATION CIRCLE (CONSTRAINED) ---
         Box(
             modifier = Modifier.size(200.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Static Target Ring
+            // Static Boundary Ring
             Canvas(modifier = Modifier.size(200.dp)) {
-                drawCircle(color = Color.LightGray.copy(alpha=0.3f), style = Stroke(width = 3f))
+                drawCircle(color = Color.LightGray.copy(alpha=0.5f), style = Stroke(width = 4f))
                 drawLine(Color.LightGray, Offset(center.x - 20, center.y), Offset(center.x + 20, center.y))
                 drawLine(Color.LightGray, Offset(center.x, center.y - 20), Offset(center.x, center.y + 20))
             }
 
-            // The Shaking Ball
-            // We multiply data.x by 20 to make the movement visible on screen pixels
-            val offsetX = if(isTesting) (data.x * 30).dp else 0.dp
-            val offsetY = if(isTesting) (data.y * 30).dp else 0.dp
+            // Calculation for Clamping
+            val maxRadius = 80f
+
+            // Raw offsets based on sensor
+            val rawX = if(isTesting) data.x * 30f else 0f
+            val rawY = if(isTesting) data.y * 30f else 0f
+
+            // Calculate distance from center
+            val distance = sqrt(rawX * rawX + rawY * rawY)
+
+            // Logic: Is it hitting the wall? (FIXED SYNTAX HERE)
+            val hittingWall = distance > maxRadius
+
+            // Clamp the values to stay inside the circle
+            val scale = if (hittingWall) maxRadius / distance else 1f
+            val clampedX = rawX * scale
+            val clampedY = rawY * scale
+
+            // Visual Feedback: Turn RED if hitting the wall
+            val ballColor = if (hittingWall) Color.Red else RippleTeal
 
             Box(
                 modifier = Modifier
-                    .offset(x = offsetX, y = offsetY) // <-- The Vibration Effect
+                    .offset(x = clampedX.dp, y = clampedY.dp)
                     .size(40.dp)
-                    .background(RippleTeal, CircleShape)
+                    .background(ballColor, CircleShape)
                     .border(2.dp, Color.White, CircleShape)
             )
         }
 
-        Text("Hold steady in the center", fontSize = 12.sp, color = Color.Gray)
+        Text(
+            text = "Hold steady in the center",
+            fontSize = 12.sp,
+            color = Color.Gray,
+            modifier = Modifier.padding(top = 16.dp)
+        )
 
         Spacer(modifier = Modifier.weight(1f))
 

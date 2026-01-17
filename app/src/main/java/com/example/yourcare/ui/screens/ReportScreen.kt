@@ -1,5 +1,7 @@
 package com.example.yourcare.ui.screens
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -16,28 +18,44 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.yourcare.ui.theme.GradientButton
 import com.example.yourcare.ui.theme.RippleTeal
-import com.example.yourcare.utils.PdfHelper
+import com.example.yourcare.ui.viewmodel.TestViewModel
+import com.example.yourcare.utils.TremorReportData
+import com.example.yourcare.utils.generateTremorPdf
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun ReportScreen(
     avg: Float,
     max: Float,
     min: Float,
+    freq: Float,
+    viewModel: TestViewModel = viewModel(),
     onHome: () -> Unit
 ) {
     val context = LocalContext.current
     var visible by remember { mutableStateOf(false) }
 
-    // Trigger animation on load
     LaunchedEffect(Unit) { visible = true }
 
-    val status = when {
-        avg < 0.2 -> "Normal / Steady"
-        avg < 1.5 -> "Mild Tremor"
-        else -> "Significant Tremor"
+    val severity = when {
+        avg < 0.2 -> "Normal"
+        avg < 1.0 -> "Mild"
+        avg < 2.0 -> "Moderate"
+        else -> "Severe"
     }
+
+    val typeAnalysis = when {
+        avg < 0.2 -> "No significant tremor."
+        freq in 3.5..6.5 -> "Resting Tremor (Parkinsonian)"
+        freq in 6.6..12.0 -> "Essential / Action Tremor"
+        else -> "Indeterminate Frequency"
+    }
+
+    val finalStatus = "$severity - $typeAnalysis"
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -46,7 +64,7 @@ fun ReportScreen(
         Spacer(modifier = Modifier.height(30.dp))
 
         Text(
-            text = "Analysis Result",
+            text = "Tremor Analysis",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = RippleTeal
@@ -65,20 +83,20 @@ fun ReportScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
-                    ResultRow("Average (RMS)", "%.3f rad/s".format(avg))
+                    // Added ResultRow here
+                    ResultRow("Intensity (RMS)", "%.2f rad/s".format(avg))
                     Divider(Modifier.padding(vertical = 12.dp))
-                    ResultRow("Peak Intensity", "%.3f rad/s".format(max))
+
+                    ResultRow("Frequency", "%.1f Hz".format(freq))
                     Divider(Modifier.padding(vertical = 12.dp))
-                    ResultRow("Minimum", "%.3f rad/s".format(min))
 
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    Text("Assessment:", color = Color.Gray)
+                    Text("Interpretation:", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = status,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if(avg < 1.5) RippleTeal else Color.Red
+                        text = typeAnalysis,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if(typeAnalysis.contains("Parkinson")) Color.Red else RippleTeal
                     )
                 }
             }
@@ -86,29 +104,67 @@ fun ReportScreen(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // PDF Share Button
+        // --- PDF BUTTON ---
         Button(
-            onClick = { PdfHelper.generateAndSharePdf(context, avg, max, min, status) },
+            onClick = {
+                try {
+                    // Check if we have data
+                    if (viewModel.rawX.isEmpty()) {
+                        Toast.makeText(context, "No graph data available", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    val reportData = TremorReportData(
+                        patientName = "Guest Patient",
+                        patientAge = "N/A",
+                        patientId = UUID.randomUUID().toString().take(6).uppercase(),
+                        doctorName = "Dr. Ripple AI",
+                        clinicName = "Ripple Healthcare Dept.",
+                        testDate = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date()),
+                        rmsScore = avg,
+                        frequencyPeak = freq,
+                        maxAmplitude = max,
+                        rawX = viewModel.rawX,
+                        rawY = viewModel.rawY,
+                        rawZ = viewModel.rawZ,
+                        frequencySpectrum = listOf(0.1f, 0.4f, 0.9f, 0.3f)
+                    )
+
+                    val pdfUri = generateTremorPdf(context, reportData)
+
+                    if (pdfUri != null) {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/pdf"
+                            putExtra(Intent.EXTRA_STREAM, pdfUri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share Report via"))
+                    } else {
+                        Toast.makeText(context, "Failed to generate PDF", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            },
             colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
             Icon(Icons.Default.Share, contentDescription = null, tint = Color.White)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Share Report (PDF)")
+            Text("Share Professional Report")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        GradientButton(
-            text = "Back to Home",
-            onClick = onHome
-        )
+        GradientButton(text = "Back to Home", onClick = onHome)
 
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
+// --- ADDED THIS MISSING FUNCTION ---
 @Composable
 fun ResultRow(label: String, value: String) {
     Row(

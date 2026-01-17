@@ -7,14 +7,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.yourcare.ui.screens.*
-//import com.example.yourcare.ui.theme.TremorAppTheme
 import com.example.yourcare.ui.theme.YourCareAppTheme
+import com.example.yourcare.ui.viewmodel.TestViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,6 +23,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             YourCareAppTheme {
                 val navController = rememberNavController()
+
+                // --- CRITICAL CHANGE ---
+                // Create the ViewModel here so it survives navigation between screens.
+                // This ensures 'TestScreen' and 'ReportScreen' share the same data.
+                val sharedViewModel: TestViewModel = viewModel()
 
                 NavHost(
                     navController = navController,
@@ -60,31 +66,37 @@ class MainActivity : ComponentActivity() {
                     // 4. Test Screen (Sensor)
                     composable("test") {
                         TestScreen(
-                            onTestComplete = { avg, max, min ->
-                                navController.navigate("report/$avg/$max/$min")
+                            // Pass the shared ViewModel so it records data into the same instance
+                            viewModel = sharedViewModel,
+                            onTestComplete = { avg, max, min, freq ->
+                                navController.navigate("report/$avg/$max/$min/$freq")
                             }
                         )
                     }
 
-                    // 5. Report Screen (with Arguments)
+                    // 5. Report Screen (Updated Arguments)
                     composable(
-                        route = "report/{avg}/{max}/{min}",
+                        route = "report/{avg}/{max}/{min}/{freq}",
                         arguments = listOf(
                             navArgument("avg") { type = NavType.FloatType },
                             navArgument("max") { type = NavType.FloatType },
-                            navArgument("min") { type = NavType.FloatType }
+                            navArgument("min") { type = NavType.FloatType },
+                            navArgument("freq") { type = NavType.FloatType }
                         )
                     ) { backStackEntry ->
                         val avg = backStackEntry.arguments?.getFloat("avg") ?: 0f
                         val max = backStackEntry.arguments?.getFloat("max") ?: 0f
                         val min = backStackEntry.arguments?.getFloat("min") ?: 0f
+                        val freq = backStackEntry.arguments?.getFloat("freq") ?: 0f
 
                         ReportScreen(
                             avg = avg,
                             max = max,
                             min = min,
+                            freq = freq,
+                            // Pass the same shared ViewModel so we can read the raw graph data for the PDF
+                            viewModel = sharedViewModel,
                             onHome = {
-                                // Go back to start, clearing stack up to details
                                 navController.popBackStack("details", inclusive = false)
                             }
                         )

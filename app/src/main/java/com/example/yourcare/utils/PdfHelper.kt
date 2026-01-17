@@ -1,5 +1,6 @@
 package com.example.yourcare.utils
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Paint
@@ -11,11 +12,13 @@ import java.io.FileOutputStream
 
 object PdfHelper {
 
+    @SuppressLint("NewApi")
     fun generateAndSharePdf(
         context: Context,
         avg: Float,
         max: Float,
         min: Float,
+        freq: Float, // Add this
         status: String
     ) {
         val pdfDocument = PdfDocument()
@@ -40,6 +43,8 @@ object PdfHelper {
         paint.strokeWidth = 2f
         canvas.drawLine(50f, 130f, 545f, 130f, paint)
 
+
+
         // 4. Metrics
         paint.textSize = 16f
         var yPos = 180f
@@ -53,9 +58,13 @@ object PdfHelper {
             paint.isFakeBoldText = false
             yPos += 40f
         }
-
+//
+//        drawRow("Average Tremor (RMS):", "%.3f rad/s".format(avg))
+//        drawRow("Peak Intensity:", "%.3f rad/s".format(max))
+//        drawRow("Minimum Intensity:", "%.3f rad/s".format(min))
         drawRow("Average Tremor (RMS):", "%.3f rad/s".format(avg))
         drawRow("Peak Intensity:", "%.3f rad/s".format(max))
+        drawRow("Tremor Frequency:", "%.1f Hz".format(freq)) // Add this line
         drawRow("Minimum Intensity:", "%.3f rad/s".format(min))
 
         yPos += 20f
