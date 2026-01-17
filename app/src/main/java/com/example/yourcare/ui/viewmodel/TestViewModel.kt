@@ -13,8 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.sqrt
 
-
-// ... (TremorData and TremorMetrics data classes remain the same) ...
+// Data Classes
 data class TremorMetrics(
     val averageRms: Float,
     val peakAmplitude: Float,
@@ -23,10 +22,14 @@ data class TremorMetrics(
 )
 
 data class TremorData(
-    val x: Float = 0f,
-    val y: Float = 0f,
-    val z: Float = 0f,
-    val magnitude: Float = 0f
+    val x: Float = 0f, val y: Float = 0f, val z: Float = 0f, val magnitude: Float = 0f
+)
+
+data class PatientDetails(
+    val name: String = "",
+    val age: String = "",
+    val gender: String = "",
+    val condition: String = ""
 )
 
 class TestViewModel : ViewModel(), SensorEventListener {
@@ -37,27 +40,29 @@ class TestViewModel : ViewModel(), SensorEventListener {
     private val _isTesting = MutableStateFlow(false)
     val isTesting = _isTesting.asStateFlow()
 
-    // --- NEW: Public lists for the PDF Report ---
+    // --- Graph Data ---
     val rawX = mutableListOf<Float>()
     val rawY = mutableListOf<Float>()
     val rawZ = mutableListOf<Float>()
-    // --------------------------------------------
-
     private val recordedMagnitudes = mutableListOf<Float>()
+
+    // --- Patient Data ---
+    var patientDetails = PatientDetails()
+        private set
+
     private var testStartTime: Long = 0
+
+    fun savePatientDetails(name: String, age: String, gender: String, condition: String) {
+        patientDetails = PatientDetails(name, age, gender, condition)
+    }
 
     fun startTest(context: Context) {
         sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val gyro = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
         if (gyro != null) {
-            // Clear previous history
             recordedMagnitudes.clear()
-
-            rawX.clear()
-            rawY.clear()
-            rawZ.clear()
-
+            rawX.clear(); rawY.clear(); rawZ.clear()
             testStartTime = System.currentTimeMillis()
             _isTesting.value = true
             sensorManager?.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME)
@@ -78,6 +83,7 @@ class TestViewModel : ViewModel(), SensorEventListener {
         val totalTimeSeconds = (System.currentTimeMillis() - testStartTime) / 1000f
         val sampleRate = if (totalTimeSeconds > 0) recordedMagnitudes.size / totalTimeSeconds else 0f
 
+        // Use the fixed FFT Helper
         val dominantFrequency = FftHelper.calculateDominantFrequency(recordedMagnitudes, sampleRate)
 
         return TremorMetrics(averageRMS, maxTremor, minTremor, dominantFrequency)
@@ -91,15 +97,9 @@ class TestViewModel : ViewModel(), SensorEventListener {
                 val z = it.values[2]
                 val magnitude = sqrt(x*x + y*y + z*z)
 
-                viewModelScope.launch {
-                    _currentData.emit(TremorData(x, y, z, magnitude))
-                }
-
-                // Save raw data for PDF
+                viewModelScope.launch { _currentData.emit(TremorData(x, y, z, magnitude)) }
                 recordedMagnitudes.add(magnitude)
-                rawX.add(x)
-                rawY.add(y)
-                rawZ.add(z)
+                rawX.add(x); rawY.add(y); rawZ.add(z)
             }
         }
     }

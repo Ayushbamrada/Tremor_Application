@@ -4,45 +4,30 @@ import android.content.Context
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.example.yourcare.R
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.*
 import kotlin.math.max
 
-// --- 1. Data Models ---
-
+// --- Data Model ---
 data class TremorReportData(
     val patientName: String,
     val patientAge: String,
     val patientId: String,
-    val doctorName: String? = null, // Optional Doctor Name
-    val clinicName: String? = null, // Optional Clinic Name
+    val doctorName: String? = null,
+    val clinicName: String? = null,
     val testDate: String,
-    // Metrics
-    val rmsScore: Float, // rad/s
-    val frequencyPeak: Float, // Hz
+    val rmsScore: Float,
+    val frequencyPeak: Float,
     val maxAmplitude: Float,
-    // Raw Data for Graphs (History)
     val rawX: List<Float>,
     val rawY: List<Float>,
     val rawZ: List<Float>,
-    val frequencySpectrum: List<Float> // Frequencies for FFT Graph
+    val frequencySpectrum: List<Float>
 )
 
-// --- 2. The Renderer Class ---
-
-private const val PAGE_WIDTH = 595 // A4 Width
-private const val PAGE_HEIGHT = 842 // A4 Height
-private const val MARGIN = 40f
-private const val CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2)
-
+// --- Renderer ---
 class TremorReportRenderer(
     private val context: Context,
     private val doc: PdfDocument,
@@ -51,47 +36,36 @@ class TremorReportRenderer(
     private var pageNumber = 0
     private lateinit var currentPage: PdfDocument.Page
     private lateinit var canvas: Canvas
-    private var yPos = MARGIN
+    private var yPos = 40f // Track vertical position
 
-    // --- Colors & Gradients ---
-    private val rippleTeal = Color.rgb(29, 143, 155) // #1D8F9B
+    // Constants
+    private val PAGE_WIDTH = 595
+    private val PAGE_HEIGHT = 842
+    private val MARGIN = 40f
+    private val CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2)
+
+    // Brand Colors
+    private val rippleTeal = Color.rgb(29, 143, 155)
     private val rippleDark = Color.rgb(16, 95, 104)
     private val accentOrange = Color.rgb(255, 127, 80)
-
-    // Gradient Paint for Header
-    private val headerGradient = LinearGradient(
-        0f, 0f, PAGE_WIDTH.toFloat(), 0f,
-        intArrayOf(rippleTeal, rippleDark),
-        null, Shader.TileMode.CLAMP
-    )
 
     fun generate() {
         startNewPage()
 
-        // 1. Doctor / Clinic Letterhead
         drawHeader()
-
-        // 2. Patient Demographics
         drawPatientInfo()
-
-        // 3. Clinical Summary (RMS & Freq)
         drawClinicalSummary()
 
-        // 4. Time Domain Graph (Smooth Waves)
-        checkSpace(200f)
+        checkSpace(180f)
         drawTimeDomainGraph()
 
-        // 5. Frequency Graph (FFT)
-        checkSpace(200f)
+        checkSpace(180f)
         drawFrequencyGraph()
 
-        // 6. Circular Deviation Plot (Scatter)
         checkSpace(250f)
         drawCircularDeviation()
 
-        // 7. Footer
         drawFooter()
-
         doc.finishPage(currentPage)
     }
 
@@ -105,94 +79,73 @@ class TremorReportRenderer(
     }
 
     private fun checkSpace(height: Float) {
-        if (yPos + height > PAGE_HEIGHT - 100) { // 100 padding for footer
-            drawFooter() // Draw footer on old page
+        if (yPos + height > PAGE_HEIGHT - 80) {
+            drawFooter()
             startNewPage()
-            drawHeader(isContinuation = true) // Simple header for next page
+            drawHeader(isContinuation = true)
         }
     }
 
-    // --- Drawing Sections ---
+    // --- SECTIONS ---
 
     private fun drawHeader(isContinuation: Boolean = false) {
         if (isContinuation) {
-            val paint = Paint().apply { textSize = 12f; color = Color.GRAY }
-            canvas.drawText("Tremor Analysis Report (Cont.)", MARGIN, yPos + 10, paint)
+            canvas.drawText("Tremor Analysis Report (Cont.)", MARGIN, yPos + 15, Paint().apply { textSize = 12f; color = Color.GRAY })
             yPos += 40f
             return
         }
 
-        // 1. Doctor/Clinic Name (Letterpad Style)
-        if (!data.doctorName.isNullOrEmpty() || !data.clinicName.isNullOrEmpty()) {
-            val docPaint = Paint().apply {
-                color = rippleDark
-                textSize = 18f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                textAlign = Paint.Align.RIGHT
-            }
-            val clinicPaint = Paint().apply {
-                color = Color.GRAY
-                textSize = 12f
-                textAlign = Paint.Align.RIGHT
-            }
-
-            val headerX = PAGE_WIDTH - MARGIN
-            if (data.doctorName != null) {
-                canvas.drawText("Dr. ${data.doctorName}", headerX, yPos + 10, docPaint)
-            }
-            if (data.clinicName != null) {
-                canvas.drawText(data.clinicName, headerX, yPos + 30, clinicPaint)
-            }
-
-            // Draw a separator line
-            val linePaint = Paint().apply { color = rippleTeal; strokeWidth = 2f }
-            canvas.drawLine(MARGIN, yPos + 45, PAGE_WIDTH - MARGIN, yPos + 45, linePaint)
-            yPos += 60f
-        }
-
-        // 2. Report Title with Gradient Background
-        val titleRect = RectF(MARGIN, yPos, PAGE_WIDTH - MARGIN, yPos + 40f)
-        val bgPaint = Paint().apply { shader = headerGradient }
-
-        // Rounded Rect for Title
-        canvas.drawRoundRect(titleRect, 10f, 10f, bgPaint)
-
-        val textPaint = Paint().apply {
-            color = Color.WHITE
-            textSize = 16f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        canvas.drawText("PARKINSON'S TREMOR ANALYSIS", MARGIN + 20f, yPos + 26f, textPaint)
-
-        // Logo (Assuming resource exists, else skip)
+        // 1. Logo (Top Right)
         val logoBmp = BitmapFactory.decodeResource(context.resources, R.drawable.ripple_logo)
         if (logoBmp != null) {
-            val scaled = Bitmap.createScaledBitmap(logoBmp, 100, 40, true)
-            canvas.drawBitmap(scaled, PAGE_WIDTH - MARGIN - 110, yPos, null)
+            val scaled = Bitmap.createScaledBitmap(logoBmp, 120, 50, true)
+            canvas.drawBitmap(scaled, PAGE_WIDTH - MARGIN - 120, MARGIN, null)
         }
 
-        yPos += 60f
+        // 2. Doctor Info (Top Left)
+        val docPaint = Paint().apply { color = rippleDark; textSize = 14f; typeface = Typeface.DEFAULT_BOLD }
+        var headerH = 0f
+        if (!data.doctorName.isNullOrEmpty()) {
+            canvas.drawText("Dr. ${data.doctorName}", MARGIN, yPos + 15, docPaint)
+            canvas.drawText(data.clinicName ?: "", MARGIN, yPos + 30, Paint().apply { textSize = 10f; color = Color.GRAY })
+            headerH = 40f
+        } else {
+            // Default header if no doctor
+            canvas.drawText("TremorScan Analysis", MARGIN, yPos + 15, docPaint)
+            headerH = 30f
+        }
+
+        yPos += headerH + 20f
+
+        // 3. Title Bar
+        val titleRect = RectF(MARGIN, yPos, PAGE_WIDTH - MARGIN, yPos + 30f)
+        val bgPaint = Paint().apply {
+            shader = LinearGradient(0f, 0f, PAGE_WIDTH.toFloat(), 0f, intArrayOf(rippleTeal, rippleDark), null, Shader.TileMode.CLAMP)
+        }
+        canvas.drawRoundRect(titleRect, 5f, 5f, bgPaint)
+        canvas.drawText("REPORT SUMMARY", MARGIN + 10, yPos + 20, Paint().apply { color = Color.WHITE; textSize = 12f; typeface = Typeface.DEFAULT_BOLD })
+
+        yPos += 50f
     }
 
     private fun drawPatientInfo() {
-        val labelPaint = Paint().apply { textSize = 10f; color = Color.GRAY; isAntiAlias = true }
-        val valuePaint = Paint().apply { textSize = 12f; color = Color.BLACK; typeface = Typeface.DEFAULT_BOLD; isAntiAlias = true }
+        val labelP = Paint().apply { textSize = 9f; color = Color.GRAY }
+        val valP = Paint().apply { textSize = 11f; color = Color.BLACK; typeface = Typeface.DEFAULT_BOLD }
 
-        val col1 = MARGIN
-        val col2 = MARGIN + 200f
-        val col3 = MARGIN + 350f
+        val rowY = yPos
+        // Name
+        canvas.drawText("PATIENT NAME", MARGIN, rowY, labelP)
+        canvas.drawText(data.patientName, MARGIN, rowY + 15, valP)
 
-        canvas.drawText("PATIENT NAME", col1, yPos, labelPaint)
-        canvas.drawText(data.patientName, col1, yPos + 15, valuePaint)
+        // Age/ID
+        canvas.drawText("AGE / ID", MARGIN + 200, rowY, labelP)
+        canvas.drawText("${data.patientAge} / ${data.patientId}", MARGIN + 200, rowY + 15, valP)
 
-        canvas.drawText("AGE / ID", col2, yPos, labelPaint)
-        canvas.drawText("${data.patientAge} / ${data.patientId}", col2, yPos + 15, valuePaint)
+        // Date
+        canvas.drawText("DATE", MARGIN + 350, rowY, labelP)
+        canvas.drawText(data.testDate, MARGIN + 350, rowY + 15, valP)
 
-        canvas.drawText("DATE", col3, yPos, labelPaint)
-        canvas.drawText(data.testDate, col3, yPos + 15, valuePaint)
-
-        yPos += 40f
-        // Divider
+        yPos += 30f
         canvas.drawLine(MARGIN, yPos, PAGE_WIDTH - MARGIN, yPos, Paint().apply { color = Color.LTGRAY })
         yPos += 20f
     }
@@ -200,214 +153,145 @@ class TremorReportRenderer(
     private fun drawClinicalSummary() {
         drawSectionTitle("Clinical Metrics")
 
-        // Draw 3 Gradient Cards
-        val cardWidth = CONTENT_WIDTH / 3 - 10
-        val cardHeight = 60f
+        val width = (CONTENT_WIDTH / 3) - 10
+        val height = 50f
 
-        val rmsStatus = if(data.rmsScore < 0.2) "Normal" else if(data.rmsScore < 1.0) "Mild" else "Severe"
-        val freqStatus = if(data.frequencyPeak in 4.0..6.5) "Parkinsonian" else if(data.frequencyPeak > 6.5) "Essential" else "Indeterminate"
+        drawCard(MARGIN, yPos, width, height, "Intensity (RMS)", "%.2f rad/s".format(data.rmsScore))
+        drawCard(MARGIN + width + 10, yPos, width, height, "Frequency", "%.1f Hz".format(data.frequencyPeak))
+        drawCard(MARGIN + (width + 10)*2, yPos, width, height, "Max Peak", "%.2f rad/s".format(data.maxAmplitude))
 
-        drawMetricCard(MARGIN, yPos, cardWidth, "Tremor Intensity (RMS)", "%.2f rad/s".format(data.rmsScore), rmsStatus)
-        drawMetricCard(MARGIN + cardWidth + 15, yPos, cardWidth, "Dominant Frequency", "%.1f Hz".format(data.frequencyPeak), freqStatus)
-        drawMetricCard(MARGIN + (cardWidth + 15)*2, yPos, cardWidth, "Max Amplitude", "%.2f rad/s".format(data.maxAmplitude), "")
-
-        yPos += 90f
+        yPos += height + 30f
     }
 
     private fun drawTimeDomainGraph() {
-        drawSectionTitle("Motion Analysis (Time Domain)")
+        drawSectionTitle("Motion History (Time Domain)")
+        val height = 120f
+        val bottom = yPos + height
 
-        val graphHeight = 120f
-        val bottom = yPos + graphHeight
+        // --- CLIP RECT (Prevents drawing outside) ---
+        canvas.save()
+        val rect = RectF(MARGIN, yPos, PAGE_WIDTH - MARGIN, bottom)
+        canvas.clipRect(rect)
 
-        // Background Box
-        val bgPaint = Paint().apply { color = Color.argb(10, 29, 143, 155); style = Paint.Style.FILL }
-        canvas.drawRect(MARGIN, yPos, PAGE_WIDTH - MARGIN, bottom, bgPaint)
+        // Background
+        canvas.drawRect(rect, Paint().apply { color = Color.argb(10, 29, 143, 155) })
 
-        // Axes
-        val axisPaint = Paint().apply { color = Color.GRAY; strokeWidth = 1f }
-        canvas.drawLine(MARGIN, yPos, MARGIN, bottom, axisPaint) // Y
-        canvas.drawLine(MARGIN, bottom/2 + yPos/2, PAGE_WIDTH-MARGIN, bottom/2 + yPos/2, axisPaint) // X (Center)
-
+        // Draw Lines
         if (data.rawX.isNotEmpty()) {
             val stepX = CONTENT_WIDTH / data.rawX.size
-
-            // Draw smooth curves
-            drawSmoothPath(data.rawX, stepX, yPos, graphHeight, Color.RED)
-            drawSmoothPath(data.rawY, stepX, yPos, graphHeight, Color.parseColor("#1D8F9B")) // Teal
-            drawSmoothPath(data.rawZ, stepX, yPos, graphHeight, Color.BLUE)
+            drawSmoothPath(data.rawX, stepX, yPos, height, Color.RED)
+            drawSmoothPath(data.rawY, stepX, yPos, height, rippleTeal)
+            drawSmoothPath(data.rawZ, stepX, yPos, height, Color.BLUE)
         }
+        canvas.restore() // End Clipping
 
-        // Legend
-        val legendY = bottom + 15f
-        val textP = Paint().apply { textSize = 8f }
-        canvas.drawText("X-Axis (Red)", MARGIN, legendY, textP)
-        canvas.drawText("Y-Axis (Teal)", MARGIN + 60, legendY, textP)
-        canvas.drawText("Z-Axis (Blue)", MARGIN + 120, legendY, textP)
+        // Border
+        canvas.drawRect(rect, Paint().apply { style = Paint.Style.STROKE; color = Color.LTGRAY })
 
-        yPos = legendY + 30f
+        yPos = bottom + 25f
     }
 
     private fun drawSmoothPath(points: List<Float>, stepX: Float, topY: Float, height: Float, colorInt: Int) {
         val path = Path()
-        val paint = Paint().apply {
-            color = colorInt
-            style = Paint.Style.STROKE
-            strokeWidth = 1.5f
-            isAntiAlias = true
-        }
+        val paint = Paint().apply { color = colorInt; style = Paint.Style.STROKE; strokeWidth = 1.2f; isAntiAlias = true }
 
         val midY = topY + height / 2
-        // Scale factor: assuming max value roughly 5.0 rad/s
-        val scaleY = (height / 2) / 5.0f
+        val scaleY = (height / 2) / 6.0f // Scale factor
 
         points.forEachIndexed { i, value ->
             val x = MARGIN + (i * stepX)
-            val y = midY - (value * scaleY)
+            val y = (midY - (value * scaleY))
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         canvas.drawPath(path, paint)
     }
 
     private fun drawFrequencyGraph() {
-        drawSectionTitle("Frequency Spectrum Analysis")
+        drawSectionTitle("Frequency Spectrum")
+        val height = 80f
+        val bottom = yPos + height
 
-        val graphHeight = 100f
-        val bottom = yPos + graphHeight
+        // Axis
+        canvas.drawLine(MARGIN, bottom, PAGE_WIDTH - MARGIN, bottom, Paint().apply { color = Color.GRAY })
 
-        // Draw Frequency Bars
-        val barWidth = CONTENT_WIDTH / 12f // 0 to 12 Hz
-        val maxFreqMag = data.frequencySpectrum.maxOrNull() ?: 1f
+        val barW = CONTENT_WIDTH / 12f
+        val maxVal = data.frequencySpectrum.maxOrNull() ?: 1f
 
         for (i in 0 until 12) {
-            val mag = if (i < data.frequencySpectrum.size) data.frequencySpectrum[i] else 0f
-            val barHeight = (mag / maxFreqMag) * (graphHeight - 20)
+            val mag = if(i < data.frequencySpectrum.size) data.frequencySpectrum[i] else 0f
+            val barH = (mag / maxVal) * (height - 10)
+            val left = MARGIN + (i * barW) + 5
+            val right = left + barW - 5
+            val top = bottom - barH
 
-            val left = MARGIN + (i * barWidth) + 5
-            val right = left + barWidth - 5
-            val top = bottom - barHeight
-
-            // Color Logic: 4-6Hz is Parkinson's Range (Red), others Teal
-            val barColor = if (i in 4..6) accentOrange else rippleTeal
-            val barPaint = Paint().apply { color = barColor }
-
-            canvas.drawRect(left, top, right, bottom, barPaint)
-
-            // Label
-            val textP = Paint().apply { textSize = 8f; textAlign = Paint.Align.CENTER }
-            canvas.drawText("${i}Hz", left + (barWidth/2) - 5, bottom + 10, textP)
+            val p = Paint().apply { color = if(i in 4..6) accentOrange else rippleTeal }
+            canvas.drawRect(left, top, right, bottom, p)
+            canvas.drawText("${i}Hz", left, bottom + 12, Paint().apply { textSize = 8f })
         }
-
         yPos = bottom + 30f
     }
 
     private fun drawCircularDeviation() {
-        drawSectionTitle("Tremor Path (Scatter Plot)")
-
-        val size = 150f
+        drawSectionTitle("Tremor Scatter Plot")
+        val size = 160f
         val cx = PAGE_WIDTH / 2f
-        val cy = yPos + size / 2 + 10
+        val cy = yPos + size / 2
 
-        // Draw Targets
-        val targetPaint = Paint().apply { style = Paint.Style.STROKE; color = Color.LTGRAY }
-        canvas.drawCircle(cx, cy, size/2, targetPaint) // Outer
-        canvas.drawCircle(cx, cy, size/4, targetPaint) // Inner
+        // Background Targets
+        val paint = Paint().apply { style = Paint.Style.STROKE; color = Color.LTGRAY }
+        canvas.drawCircle(cx, cy, size/2, paint)
+        canvas.drawCircle(cx, cy, size/4, paint)
+        canvas.drawLine(cx - size/2, cy, cx + size/2, cy, paint)
+        canvas.drawLine(cx, cy - size/2, cx, cy + size/2, paint)
 
-        // Crosshair
-        canvas.drawLine(cx - size/2, cy, cx + size/2, cy, targetPaint)
-        canvas.drawLine(cx, cy - size/2, cx, cy + size/2, targetPaint)
+        // --- CLIP CIRCLE ---
+        canvas.save()
+        val path = Path().apply { addCircle(cx, cy, size/2, Path.Direction.CW) }
+        canvas.clipPath(path)
 
-        // Plot Points (X vs Y deviation)
-        val pointPaint = Paint().apply { color = Color.argb(100, 29, 143, 155); strokeWidth = 4f }
-        val scale = size / 10f // Scale logic
+        // Points
+        val dotP = Paint().apply { color = rippleTeal; alpha = 150; style = Paint.Style.FILL }
+        val scale = size / 10f
+        val step = max(1, data.rawX.size / 200)
 
-        // Limit points to keep PDF light
-        val limit = 200
-        val skip = max(1, data.rawX.size / limit)
-
-        for (i in data.rawX.indices step skip) {
+        for (i in data.rawX.indices step step) {
             val x = cx + (data.rawX[i] * scale)
             val y = cy + (data.rawY[i] * scale)
-            // Clamp
-            if (x > cx - size && x < cx + size && y > cy - size && y < cy + size) {
-                canvas.drawPoint(x, y, pointPaint)
-            }
+            canvas.drawCircle(x, y, 2f, dotP)
         }
-
-        canvas.drawText("Center Stability Visualization", cx, cy + size/2 + 15, Paint().apply { textAlign = Paint.Align.CENTER; textSize=10f })
+        canvas.restore() // End Clipping
 
         yPos = cy + size/2 + 40f
     }
 
     private fun drawFooter() {
-        val footerY = PAGE_HEIGHT - 60f
-
-        // Footer Line
-        val linePaint = Paint().apply { color = rippleTeal; strokeWidth = 3f }
-        canvas.drawLine(MARGIN, footerY, PAGE_WIDTH - MARGIN, footerY, linePaint)
-
-        // Powered By
-        val textPaint = Paint().apply { textSize = 9f; color = Color.GRAY }
-        canvas.drawText("Generated by TremorScan Pro", MARGIN, footerY + 15, textPaint)
-
-        val rightPaint = Paint().apply { textSize = 9f; color = rippleDark; textAlign = Paint.Align.RIGHT; typeface = Typeface.DEFAULT_BOLD }
-        canvas.drawText("Powered by Ripple Healthcare", PAGE_WIDTH - MARGIN, footerY + 15, rightPaint)
-
-        val contactPaint = Paint().apply { textSize = 8f; color = Color.GRAY; textAlign = Paint.Align.RIGHT }
-        canvas.drawText("www.ripplehealthcare.in | info@ripplehealthcare.in", PAGE_WIDTH - MARGIN, footerY + 28, contactPaint)
+        val y = PAGE_HEIGHT - 40f
+        canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, Paint().apply { color = rippleTeal; strokeWidth = 2f })
+        canvas.drawText("Powered by Ripple Healthcare", PAGE_WIDTH - MARGIN, y + 15, Paint().apply { textAlign = Paint.Align.RIGHT; textSize = 9f; color = Color.GRAY })
     }
 
-    // Helpers
     private fun drawSectionTitle(title: String) {
-        val paint = Paint().apply {
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            color = rippleDark
-        }
-        canvas.drawText(title, MARGIN, yPos, paint)
+        canvas.drawText(title, MARGIN, yPos, Paint().apply { textSize = 12f; typeface = Typeface.DEFAULT_BOLD; color = rippleDark })
         yPos += 20f
     }
 
-    private fun drawMetricCard(x: Float, y: Float, width: Float, title: String, value: String, subtitle: String) {
-        val rect = RectF(x, y, x + width, y + 60f)
-        val paint = Paint().apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 1f
-            color = Color.LTGRAY
-            pathEffect = DashPathEffect(floatArrayOf(5f, 5f), 0f)
-        }
-        canvas.drawRoundRect(rect, 8f, 8f, paint)
-
-        val titleP = Paint().apply { textSize = 9f; color = Color.GRAY }
-        canvas.drawText(title, x + 10, y + 20, titleP)
-
-        val valP = Paint().apply { textSize = 16f; color = rippleTeal; typeface = Typeface.DEFAULT_BOLD }
-        canvas.drawText(value, x + 10, y + 40, valP)
-
-        if(subtitle.isNotEmpty()) {
-            val subP = Paint().apply { textSize = 10f; color = if(subtitle.contains("Parkin") || subtitle == "Severe") Color.RED else Color.rgb(0, 150, 0); textAlign = Paint.Align.RIGHT }
-            canvas.drawText(subtitle, x + width - 10, y + 40, subP)
-        }
+    private fun drawCard(x: Float, y: Float, w: Float, h: Float, label: String, value: String) {
+        val r = RectF(x, y, x+w, y+h)
+        val p = Paint().apply { style = Paint.Style.STROKE; color = Color.LTGRAY }
+        canvas.drawRoundRect(r, 5f, 5f, p)
+        canvas.drawText(label, x+5, y+15, Paint().apply { textSize=9f; color=Color.GRAY })
+        canvas.drawText(value, x+5, y+35, Paint().apply { textSize=14f; color=rippleTeal; typeface=Typeface.DEFAULT_BOLD })
     }
 }
-
-// --- 3. Public Entry Point ---
 
 fun generateTremorPdf(context: Context, data: TremorReportData): Uri? {
     val pdfDocument = PdfDocument()
     val renderer = TremorReportRenderer(context, pdfDocument, data)
-
     try {
         renderer.generate()
-
-        // Save Logic
-        val fileName = "TremorReport_${System.currentTimeMillis()}.pdf"
-        val file = File(context.cacheDir, fileName)
-
+        val file = File(context.cacheDir, "TremorReport_${System.currentTimeMillis()}.pdf")
         FileOutputStream(file).use { pdfDocument.writeTo(it) }
-
         return FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-
     } catch (e: Exception) {
         e.printStackTrace()
         return null

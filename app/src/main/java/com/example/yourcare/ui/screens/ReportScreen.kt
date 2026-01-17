@@ -38,6 +38,10 @@ fun ReportScreen(
 ) {
     val context = LocalContext.current
     var visible by remember { mutableStateOf(false) }
+    // --- Dialog State ---
+    var showDialog by remember { mutableStateOf(false) }
+    var doctorName by remember { mutableStateOf("") }
+    var clinicName by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { visible = true }
 
@@ -54,8 +58,6 @@ fun ReportScreen(
         freq in 6.6..12.0 -> "Essential / Action Tremor"
         else -> "Indeterminate Frequency"
     }
-
-    val finalStatus = "$severity - $typeAnalysis"
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -83,7 +85,6 @@ fun ReportScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
-                    // Added ResultRow here
                     ResultRow("Intensity (RMS)", "%.2f rad/s".format(avg))
                     Divider(Modifier.padding(vertical = 12.dp))
 
@@ -104,49 +105,9 @@ fun ReportScreen(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // --- PDF BUTTON ---
+        // --- PDF BUTTON (Opens Dialog) ---
         Button(
-            onClick = {
-                try {
-                    // Check if we have data
-                    if (viewModel.rawX.isEmpty()) {
-                        Toast.makeText(context, "No graph data available", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-
-                    val reportData = TremorReportData(
-                        patientName = "Guest Patient",
-                        patientAge = "N/A",
-                        patientId = UUID.randomUUID().toString().take(6).uppercase(),
-                        doctorName = "Dr. Ripple AI",
-                        clinicName = "Ripple Healthcare Dept.",
-                        testDate = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date()),
-                        rmsScore = avg,
-                        frequencyPeak = freq,
-                        maxAmplitude = max,
-                        rawX = viewModel.rawX,
-                        rawY = viewModel.rawY,
-                        rawZ = viewModel.rawZ,
-                        frequencySpectrum = listOf(0.1f, 0.4f, 0.9f, 0.3f)
-                    )
-
-                    val pdfUri = generateTremorPdf(context, reportData)
-
-                    if (pdfUri != null) {
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/pdf"
-                            putExtra(Intent.EXTRA_STREAM, pdfUri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share Report via"))
-                    } else {
-                        Toast.makeText(context, "Failed to generate PDF", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            },
+            onClick = { showDialog = true },
             colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(16.dp)
@@ -162,9 +123,100 @@ fun ReportScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
     }
+
+    // --- Doctor Details Dialog ---
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Enter Professional Details") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = doctorName,
+                        onValueChange = { doctorName = it },
+                        label = { Text("Doctor's Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = clinicName,
+                        onValueChange = { clinicName = it },
+                        label = { Text("Clinic / Hospital Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDialog = false
+                        generateAndShare(context, viewModel, avg, max, freq, doctorName, clinicName)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RippleTeal)
+                ) {
+                    Text("Generate PDF")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
-// --- ADDED THIS MISSING FUNCTION ---
+private fun generateAndShare(
+    context: android.content.Context,
+    viewModel: TestViewModel,
+    avg: Float,
+    max: Float,
+    freq: Float,
+    doctorName: String,
+    clinicName: String
+) {
+    try {
+        // Check if we have data
+        if (viewModel.rawX.isEmpty()) {
+            Toast.makeText(context, "No graph data available", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val reportData = TremorReportData(
+            patientName = "Guest Patient",
+            patientAge = "N/A",
+            patientId = UUID.randomUUID().toString().take(6).uppercase(),
+            // Use the inputs from the dialog
+            doctorName = doctorName.ifEmpty { "Dr. Ripple AI" },
+            clinicName = clinicName.ifEmpty { "Ripple Healthcare Dept." },
+            testDate = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date()),
+            rmsScore = avg,
+            frequencyPeak = freq,
+            maxAmplitude = max,
+            rawX = viewModel.rawX,
+            rawY = viewModel.rawY,
+            rawZ = viewModel.rawZ,
+            frequencySpectrum = listOf(0.1f, 0.4f, 0.9f, 0.3f)
+        )
+
+        val pdfUri = generateTremorPdf(context, reportData)
+
+        if (pdfUri != null) {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, pdfUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share Report via"))
+        } else {
+            Toast.makeText(context, "Failed to generate PDF", Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+    }
+}
+
 @Composable
 fun ResultRow(label: String, value: String) {
     Row(

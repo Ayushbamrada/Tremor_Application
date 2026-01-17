@@ -4,28 +4,31 @@ import kotlin.math.*
 
 object FftHelper {
 
-    // Returns the Dominant Frequency in Hz
     fun calculateDominantFrequency(data: List<Float>, sampleRate: Float): Float {
         val n = data.size
         if (n == 0) return 0f
 
-        // 1. Prepare Complex Arrays (Real & Imaginary)
-        // FFT requires size to be a power of 2. We pad with zeros if needed.
+        // --- FIX: Remove DC Offset (Gravity/Static Bias) ---
+        val mean = data.average().toFloat()
+        val centeredData = data.map { it - mean }
+
+        // 1. Prepare for FFT (Pad to next power of 2)
         val m = ceil(ln(n.toDouble()) / ln(2.0)).toInt()
         val size = 2.0.pow(m).toInt()
 
-        val real = DoubleArray(size) { i -> if (i < n) data[i].toDouble() else 0.0 }
+        val real = DoubleArray(size) { i -> if (i < n) centeredData[i].toDouble() else 0.0 }
         val imag = DoubleArray(size) { 0.0 }
 
-        // 2. Perform FFT
+        // 2. Run FFT
         fft(real, imag)
 
-        // 3. Calculate Magnitude for each frequency bin
-        // We only look at the first half (Nyquist limit)
+        // 3. Find Peak (Ignore first few bins to avoid low-freq noise)
         var maxMagnitude = -1.0
         var maxIndex = 0
 
-        // Ignore index 0 (DC offset/Gravity)
+        // Start from index 1 (skip 0Hz).
+        // We also skip extremely low frequencies (< 2Hz) to filter drift if needed,
+        // but index 1 is usually enough if DC is removed.
         for (i in 1 until size / 2) {
             val magnitude = sqrt(real[i] * real[i] + imag[i] * imag[i])
             if (magnitude > maxMagnitude) {
@@ -34,13 +37,10 @@ object FftHelper {
             }
         }
 
-        // 4. Convert Index to Frequency (Hz)
-        // Frequency = Index * (SampleRate / TotalPoints)
-        val frequency = maxIndex * (sampleRate / size)
-        return frequency.toFloat()
+        // 4. Convert to Hz
+        return maxIndex * (sampleRate / size)
     }
 
-    // Standard Cooley-Tukey FFT Algorithm
     private fun fft(real: DoubleArray, imag: DoubleArray) {
         val n = real.size
         if (n <= 1) return
